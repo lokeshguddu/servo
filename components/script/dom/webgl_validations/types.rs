@@ -56,6 +56,7 @@ type_safe_wrapper! { TexDataType,
     UnsignedShort4444 => UNSIGNED_SHORT_4_4_4_4,
     UnsignedShort5551 => UNSIGNED_SHORT_5_5_5_1,
     UnsignedShort565 => UNSIGNED_SHORT_5_6_5,
+    Float => FLOAT,
 }
 
 impl TexDataType {
@@ -67,6 +68,7 @@ impl TexDataType {
             UnsignedShort4444 |
             UnsignedShort5551 |
             UnsignedShort565 => 2,
+            Float => 4,
         }
     }
 
@@ -79,6 +81,7 @@ impl TexDataType {
             UnsignedShort565 => 3,
             UnsignedShort5551 => 4,
             UnsignedShort4444 => 4,
+            Float => 1,
         }
     }
 }

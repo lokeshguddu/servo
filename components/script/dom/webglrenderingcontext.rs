@@ -28,6 +28,7 @@ use dom::webglactiveinfo::WebGLActiveInfo;
 use dom::webglbuffer::WebGLBuffer;
 use dom::webglcontextevent::WebGLContextEvent;
 use dom::webglframebuffer::WebGLFramebuffer;
+use dom::webgl_extensions::WebGLExtensionManager;
 use dom::webglprogram::WebGLProgram;
 use dom::webglrenderbuffer::WebGLRenderbuffer;
 use dom::webglshader::WebGLShader;
@@ -150,6 +151,7 @@ pub struct WebGLRenderingContext {
     current_scissor: Cell<(i32, i32, i32, i32)>,
     #[ignore_heap_size_of = "Because it's small"]
     current_clear_color: Cell<(f32, f32, f32, f32)>,
+    extension_manager: WebGLExtensionManager
 }
 
 impl WebGLRenderingContext {
@@ -182,7 +184,8 @@ impl WebGLRenderingContext {
                 current_program: MutNullableJS::new(None),
                 current_vertex_attrib_0: Cell::new((0f32, 0f32, 0f32, 1f32)),
                 current_scissor: Cell::new((0, 0, size.width, size.height)),
-                current_clear_color: Cell::new((0.0, 0.0, 0.0, 0.0))
+                current_clear_color: Cell::new((0.0, 0.0, 0.0, 0.0)),
+                extension_manager: WebGLExtensionManager::new()
             }
         })
     }
@@ -522,9 +525,11 @@ impl WebGLRenderingContext {
         // If it is UNSIGNED_BYTE, a Uint8Array must be supplied;
         // if it is UNSIGNED_SHORT_5_6_5, UNSIGNED_SHORT_4_4_4_4,
         // or UNSIGNED_SHORT_5_5_5_1, a Uint16Array must be supplied.
+        // or FLOAT, a Float32Array must be supplied.
         // If the types do not match, an INVALID_OPERATION error is generated.
         typedarray!(in(cx) let typedarray_u8: Uint8Array = data);
         typedarray!(in(cx) let typedarray_u16: Uint16Array = data);
+        typedarray!(in(cx) let typedarray_f32: Float32Array = data);
         let received_size = if data.is_null() {
             element_size
         } else {
@@ -532,6 +537,8 @@ impl WebGLRenderingContext {
                 2
             } else if typedarray_u8.is_ok() {
                 1
+            } else if typedarray_f32.is_ok() {
+                4
             } else {
                 self.webgl_error(InvalidOperation);
                 return Err(());
@@ -569,6 +576,7 @@ impl WebGLRenderingContext {
         if !self.texture_unpacking_settings.get().contains(FLIP_Y_AXIS) {
             return pixels;
         }
+        println!("prepare6");
 
         let cpp = (data_type.element_size() *
                    internal_format.components() / data_type.components_per_element()) as usize;
@@ -678,19 +686,24 @@ impl WebGLRenderingContext {
                       source_premultiplied: bool,
                       source_from_image_or_canvas: bool,
                       mut pixels: Vec<u8>) -> Vec<u8> {
+        println!("prepare1");
         let dest_premultiply = self.texture_unpacking_settings.get().contains(PREMULTIPLY_ALPHA);
         if !source_premultiplied && dest_premultiply {
             if source_from_image_or_canvas {
+                println!("prepare2");
                 // When the pixels come from image or canvas or imagedata, use RGBA8 format
                 pixels = self.premultiply_pixels(TexFormat::RGBA, TexDataType::UnsignedByte, pixels);
             } else {
+                println!("prepare3");
                 pixels = self.premultiply_pixels(internal_format, data_type, pixels);
             }
         } else if source_premultiplied && !dest_premultiply {
+            println!("prepare4");
             pixels = self.remove_premultiplied_alpha(pixels);
         }
 
         if source_from_image_or_canvas {
+            println!("prepare5");
             pixels = self.rgba8_image_to_tex_image_data(internal_format, data_type, pixels);
         }
 
@@ -730,7 +743,7 @@ impl WebGLRenderingContext {
 
         // TODO(emilio): convert colorspace if requested
         let msg = WebGLCommand::TexImage2D(target.as_gl_constant(), level as i32,
-                                           internal_format.as_gl_constant() as i32,
+                                           0x8814, //internal_format.as_gl_constant() as i32,
                                            width as i32, height as i32,
                                            internal_format.as_gl_constant(),
                                            data_type.as_gl_constant(), pixels);
@@ -806,6 +819,14 @@ impl WebGLRenderingContext {
                 false
             },
         }
+    }
+
+    fn get_gl_extensions(&self) -> String {
+        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        self.ipc_renderer
+            .send(CanvasMsg::WebGL(WebGLCommand::GetExtensions(sender)))
+            .unwrap();
+        receiver.recv().unwrap()
     }
 }
 
@@ -1019,14 +1040,21 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.14
     fn GetSupportedExtensions(&self) -> Option<Vec<DOMString>> {
-        Some(vec![])
+        self.extension_manager.init_once(||{
+            self.get_gl_extensions()
+        });
+        let extensions = self.extension_manager.get_suported_extensions();
+        Some(extensions.iter().map(|name| DOMString::from(*name)).collect())
     }
 
     #[allow(unsafe_code)]
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.14
-    unsafe fn GetExtension(&self, _cx: *mut JSContext, _name: DOMString)
+    unsafe fn GetExtension(&self, _cx: *mut JSContext, name: DOMString)
                     -> Option<NonZero<*mut JSObject>> {
-        None
+        self.extension_manager.init_once(||{
+            self.get_gl_extensions()
+        });
+        self.extension_manager.get_or_init_extension(&name, self)
     }
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.3
@@ -2834,6 +2862,11 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                   format: u32,
                   data_type: u32,
                   data_ptr: *mut JSObject) -> Fallible<()> {
+
+        if !self.extension_manager.is_tex_type_enabled(data_type) {
+            return Ok(self.webgl_error(InvalidEnum));
+        }
+
         let data = if data_ptr.is_null() {
             None
         } else {
@@ -2902,6 +2935,10 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                    format: u32,
                    data_type: u32,
                    source: Option<ImageDataOrHTMLImageElementOrHTMLCanvasElementOrHTMLVideoElement>) -> Fallible<()> {
+        if !self.extension_manager.is_tex_type_enabled(data_type) {
+            return Ok(self.webgl_error(InvalidEnum));
+        }
+
         // Get pixels from image source
         let (pixels, size, premultiplied) = match self.get_image_pixels(source) {
             Ok((pixels, size, premultiplied)) => (pixels, size, premultiplied),
@@ -2954,7 +2991,6 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
         } else {
             Some(try!(fallible_array_buffer_view_to_vec(cx, data_ptr)))
         };
-
 
         let validator = TexImage2DValidator::new(self, target, level,
                                                  format, width, height,

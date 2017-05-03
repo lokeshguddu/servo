@@ -238,6 +238,7 @@ interface WebGLRenderingContextBase
     const GLenum INT                            = 0x1404;
     const GLenum UNSIGNED_INT                   = 0x1405;
     const GLenum FLOAT                          = 0x1406;
+    const GLenum HALF_FLOAT                     = 0x140B;
 
     /* PixelFormat */
     const GLenum DEPTH_COMPONENT                = 0x1902;
