@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use dom::bindings::codegen::Bindings::OESTextureHalfFloatBinding::OESTextureHalfFloatConstants;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
 
 /// This macro creates type-safe wrappers for WebGL types, associating variants
@@ -57,6 +58,7 @@ type_safe_wrapper! { TexDataType,
     UnsignedShort5551 => UNSIGNED_SHORT_5_5_5_1,
     UnsignedShort565 => UNSIGNED_SHORT_5_6_5,
     Float => FLOAT,
+    HalfFloat => HALF_FLOAT,
 }
 
 impl TexDataType {
@@ -69,6 +71,7 @@ impl TexDataType {
             UnsignedShort5551 |
             UnsignedShort565 => 2,
             Float => 4,
+            HalfFloat => 2,
         }
     }
 
@@ -82,6 +85,7 @@ impl TexDataType {
             UnsignedShort5551 => 4,
             UnsignedShort4444 => 4,
             Float => 1,
+            HalfFloat => 1,
         }
     }
 }

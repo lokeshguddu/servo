@@ -6,3 +6,6 @@ use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderi
 use super::{ext_constants, WebGLExtension, WebGLExtensionManager};
 
 pub mod oestexturefloat;
+pub mod oestexturefloatlinear;
+pub mod oestexturehalffloat;
+pub mod oestexturehalffloatlinear;

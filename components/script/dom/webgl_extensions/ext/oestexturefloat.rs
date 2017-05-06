@@ -3,13 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use dom::bindings::codegen::Bindings::OESTextureFloatBinding;
-use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as webgl;
 use dom::bindings::js::Root;
 use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
-use dom::globalscope::GlobalScope;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom_struct::dom_struct;
-use super::{ext_constants as gl, WebGLExtension, WebGLExtensionManager};
+use super::{constans as webgl, ext_constants as gl, WebGLExtension, WebGLExtensionManager};
 
 #[dom_struct]
 pub struct OESTextureFloat {
@@ -26,9 +24,9 @@ impl OESTextureFloat {
 
 impl WebGLExtension for OESTextureFloat {
     type Extension = OESTextureFloat;
-    fn new(global: &GlobalScope, ctx: &WebGLRenderingContext) -> Root<OESTextureFloat> {
+    fn new(ctx: &WebGLRenderingContext) -> Root<OESTextureFloat> {
         reflect_dom_object(box OESTextureFloat::new_inherited(),
-                           global,
+                           &*ctx.global(),
                            OESTextureFloatBinding::Wrap)
     }
 
@@ -44,6 +42,11 @@ impl WebGLExtension for OESTextureFloat {
         if needs_replace {
             // Special internal formast must be used to avoid clamped float values
             manager.add_effective_tex_internal_format(webgl::RGBA, webgl::FLOAT, gl::RGBA32F);
+            manager.add_effective_tex_internal_format(webgl::RGB, webgl::FLOAT, gl::RGB32F);
+            manager.add_effective_tex_internal_format(webgl::LUMINANCE, webgl::FLOAT, gl::LUMINANCE32F_ARB);
+            manager.add_effective_tex_internal_format(webgl::ALPHA, webgl::FLOAT, gl::ALPHA32F_ARB);
+            manager.add_effective_tex_internal_format(webgl::LUMINANCE_ALPHA, webgl::FLOAT,
+                                                      gl::LUMINANCE_ALPHA32F_ARB);
         }
     }
 

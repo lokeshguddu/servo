@@ -17,16 +17,21 @@ use std::collections::{HashMap, HashSet};
 
 type GLenum = u32;
 
-const default_disabled_tex_types: [GLenum; 2] = [
+const DEFAULT_DISABLED_TEX_TYPES: [GLenum; 2] = [
+    constants::FLOAT, constants::HALF_FLOAT
+];
+
+const DEFAULT_NOT_FILTERABLE_TEX_TYPES: [GLenum; 2] = [
     constants::FLOAT, constants::HALF_FLOAT
 ];
 
 #[must_root]
 #[derive(JSTraceable, HeapSizeOf)]
 pub struct WebGLExtensionManager {
-    extensions: DOMRefCell<HashMap<&'static str, Box<WebGLExtensionWrapper>>>,
+    extensions: DOMRefCell<HashMap<String, Box<WebGLExtensionWrapper>>>,
     gl_extensions: DOMRefCell<HashSet<String>>,
     disabled_tex_types: DOMRefCell<HashSet<GLenum>>,
+    not_filterable_tex_types: DOMRefCell<HashSet<GLenum>>,
     effective_tex_internal_formats: DOMRefCell<HashMap<TexFormatType,u32>>
 }
 
@@ -35,7 +40,8 @@ impl WebGLExtensionManager {
         Self {
             extensions: DOMRefCell::new(HashMap::new()),
             gl_extensions: DOMRefCell::new(HashSet::new()),
-            disabled_tex_types: DOMRefCell::new(default_disabled_tex_types.iter().cloned().collect()),
+            disabled_tex_types: DOMRefCell::new(DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect()),
+            not_filterable_tex_types: DOMRefCell::new(DEFAULT_NOT_FILTERABLE_TEX_TYPES.iter().cloned().collect()),
             effective_tex_internal_formats: DOMRefCell::new(HashMap::new()),
         }
     }
@@ -49,7 +55,8 @@ impl WebGLExtensionManager {
     }
 
     pub fn register<T:'static + WebGLExtension + JSTraceable + HeapSizeOf>(&self) {
-        self.extensions.borrow_mut().insert(T::name(), box TypedWebGLExtensionWrapper::<T>::new());
+        let name = T::name().to_uppercase();
+        self.extensions.borrow_mut().insert(name, box TypedWebGLExtensionWrapper::<T>::new());
     }
 
     pub fn get_suported_extensions(&self) -> Vec<&'static str> {
@@ -60,7 +67,8 @@ impl WebGLExtensionManager {
     }
 
     pub fn get_or_init_extension(&self, name: &str, ctx: &WebGLRenderingContext) -> Option<NonZero<*mut JSObject>> {
-        self.extensions.borrow().get(name).and_then(|extension| {
+        let name = name.to_uppercase();
+        self.extensions.borrow().get(&name).and_then(|extension| {
             if extension.is_supported(self) {
                 Some(extension.instance_or_init(ctx, self))
             } else {
@@ -106,8 +114,19 @@ impl WebGLExtensionManager {
         
     }
 
+    pub fn enable_filterable_tex_type(&self, text_data_type: GLenum) {
+        self.not_filterable_tex_types.borrow_mut().remove(&text_data_type);
+    }
+
+    pub fn is_filterable(&self, text_data_type: u32) -> bool {
+        self.not_filterable_tex_types.borrow().get(&text_data_type).is_none()
+    }
+
     fn register_all_extensions(&self) {
         self.register::<ext::oestexturefloat::OESTextureFloat>();
+        self.register::<ext::oestexturefloatlinear::OESTextureFloatLinear>();
+        self.register::<ext::oestexturehalffloat::OESTextureHalfFloat>();
+        self.register::<ext::oestexturehalffloatlinear::OESTextureHalfFloatLinear>();
     }
 }
 

@@ -44,7 +44,7 @@ impl<T: WebGLExtension + JSTraceable + HeapSizeOf> WebGLExtensionWrapper for Typ
         let mut enabled = true;
         let extension = self.extension.or_init(|| {
             enabled = false;
-            T::new(&ctx.global(), ctx)
+            T::new(ctx)
         });
         if !enabled {
             self.enable(manager);

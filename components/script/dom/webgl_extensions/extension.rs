@@ -5,13 +5,12 @@
 use dom::bindings::js::Root;
 use dom::bindings::reflector::DomObject;
 use dom::bindings::trace::JSTraceable;
-use dom::globalscope::GlobalScope;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use super::WebGLExtensionManager;
 
 pub trait WebGLExtension: Sized where Self::Extension: DomObject + JSTraceable {
     type Extension;
-    fn new(global: &GlobalScope, ctx: &WebGLRenderingContext) -> Root<Self::Extension>;
+    fn new(ctx: &WebGLRenderingContext) -> Root<Self::Extension>;
     fn is_supported(manager: &WebGLExtensionManager) -> bool;
     fn enable(manager: &WebGLExtensionManager);
     fn name() -> &'static str;
