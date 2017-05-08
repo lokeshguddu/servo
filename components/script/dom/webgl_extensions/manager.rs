@@ -6,14 +6,18 @@ use core::iter::FromIterator;
 use core::nonzero::NonZero;
 use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
+use dom::bindings::js::Root;
 use dom::bindings::trace::JSTraceable;
 use dom::webglrenderingcontext::WebGLRenderingContext;
-use js::jsapi::JSObject;
+use js::jsapi::{JSContext, JSObject};
+use js::jsval::JSVal;
 use heapsize::HeapSizeOf;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use super::ext;
 use super::WebGLExtension;
 use super::wrapper::{WebGLExtensionWrapper, TypedWebGLExtensionWrapper};
-use std::collections::{HashMap, HashSet};
+use webrender_traits::WebGLError;
 
 type GLenum = u32;
 
@@ -25,31 +29,49 @@ const DEFAULT_NOT_FILTERABLE_TEX_TYPES: [GLenum; 2] = [
     constants::FLOAT, constants::HALF_FLOAT
 ];
 
+
+#[derive(JSTraceable, HeapSizeOf)]
+struct WebGLExtensionFeatures {
+    gl_extensions: HashSet<String>,
+    disabled_tex_types: HashSet<GLenum>,
+    not_filterable_tex_types: HashSet<GLenum>,
+    effective_tex_internal_formats: HashMap<TexFormatType,u32>,
+    query_parameter_handlers: HashMap<GLenum, WebGLQueryParameterHandler>
+}
+
+impl Default for WebGLExtensionFeatures {
+    fn default() -> WebGLExtensionFeatures {
+        WebGLExtensionFeatures {
+            gl_extensions: HashSet::new(),
+            disabled_tex_types: DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect(),
+            not_filterable_tex_types: DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect(),
+            effective_tex_internal_formats: HashMap::new(),
+            query_parameter_handlers: HashMap::new()
+        }
+    }
+}
+
+
 #[must_root]
 #[derive(JSTraceable, HeapSizeOf)]
 pub struct WebGLExtensionManager {
     extensions: DOMRefCell<HashMap<String, Box<WebGLExtensionWrapper>>>,
-    gl_extensions: DOMRefCell<HashSet<String>>,
-    disabled_tex_types: DOMRefCell<HashSet<GLenum>>,
-    not_filterable_tex_types: DOMRefCell<HashSet<GLenum>>,
-    effective_tex_internal_formats: DOMRefCell<HashMap<TexFormatType,u32>>
+    features: DOMRefCell<WebGLExtensionFeatures>,
 }
 
 impl WebGLExtensionManager {
     pub fn new() -> WebGLExtensionManager {
         Self {
             extensions: DOMRefCell::new(HashMap::new()),
-            gl_extensions: DOMRefCell::new(HashSet::new()),
-            disabled_tex_types: DOMRefCell::new(DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect()),
-            not_filterable_tex_types: DOMRefCell::new(DEFAULT_NOT_FILTERABLE_TEX_TYPES.iter().cloned().collect()),
-            effective_tex_internal_formats: DOMRefCell::new(HashMap::new()),
+            features: DOMRefCell::new(Default::default())
         }
     }
 
     pub fn init_once<F>(&self, cb: F) where F: FnOnce() -> String {
         if self.extensions.borrow().len() == 0 {
             let gl_str = cb();
-            *self.gl_extensions.borrow_mut() = HashSet::from_iter(gl_str.split(&[',',' '][..]).map(|s| s.into()));
+            self.features.borrow_mut().gl_extensions = HashSet::from_iter(gl_str.split(&[',',' '][..])
+                                                                                .map(|s| s.into()));
             self.register_all_extensions();
         }
     }
@@ -77,21 +99,33 @@ impl WebGLExtensionManager {
         })
     }
 
+    pub fn get_dom_object<T>(&self) -> Option<Root<T::Extension>>
+           where T: 'static + WebGLExtension + JSTraceable + HeapSizeOf {
+        let name = T::name().to_uppercase();
+        self.extensions.borrow().get(&name).and_then(|extension| {
+            extension.as_any().downcast_ref::<TypedWebGLExtensionWrapper<T>>().and_then(|extension| {
+                extension.dom_object()
+            })
+        })
+    }
+
+    //pub fn get_dom_object(&self, name: &str) -> Option<
+
     pub fn supports_gl_extension(&self, name: &str) -> bool {
-        self.gl_extensions.borrow().contains(name)
+        self.features.borrow().gl_extensions.contains(name)
     }
 
     pub fn supports_any_gl_extension(&self, names: &[&str]) -> bool {
-        let gl_ext = self.gl_extensions.borrow();
-        names.iter().any(|name| gl_ext.contains(*name))
+        let features = self.features.borrow();
+        names.iter().any(|name| features.gl_extensions.contains(*name))
     }
 
     pub fn enable_tex_type(&self, data_type: GLenum) {
-        self.disabled_tex_types.borrow_mut().remove(&data_type);
+        self.features.borrow_mut().disabled_tex_types.remove(&data_type);
     }
 
     pub fn is_tex_type_enabled(&self, data_type: GLenum) -> bool {
-        self.disabled_tex_types.borrow().get(&data_type).is_none()
+        self.features.borrow().disabled_tex_types.get(&data_type).is_none()
     }
 
     pub fn add_effective_tex_internal_format(&self,
@@ -100,8 +134,8 @@ impl WebGLExtensionManager {
                                              effective_internal_format: u32)
     {
         let format = TexFormatType(source_internal_format, source_data_type);
-        self.effective_tex_internal_formats.borrow_mut().insert(format,
-                                                                effective_internal_format);
+        self.features.borrow_mut().effective_tex_internal_formats.insert(format,
+                                                                         effective_internal_format);
 
     }
 
@@ -109,17 +143,28 @@ impl WebGLExtensionManager {
                                              source_internal_format: u32,
                                              source_data_type: u32) -> u32 {
         let format = TexFormatType(source_internal_format, source_data_type);
-        *(self.effective_tex_internal_formats.borrow().get(&format)
-                                                      .unwrap_or(&source_internal_format))
+        *(self.features.borrow().effective_tex_internal_formats.get(&format)
+                                                                .unwrap_or(&source_internal_format))
         
     }
 
     pub fn enable_filterable_tex_type(&self, text_data_type: GLenum) {
-        self.not_filterable_tex_types.borrow_mut().remove(&text_data_type);
+        self.features.borrow_mut().not_filterable_tex_types.remove(&text_data_type);
     }
 
     pub fn is_filterable(&self, text_data_type: u32) -> bool {
-        self.not_filterable_tex_types.borrow().get(&text_data_type).is_none()
+        self.features.borrow().not_filterable_tex_types.get(&text_data_type).is_none()
+    }
+
+    pub fn add_query_parameter_handler(&self, name: GLenum, f: Box<WebGLQueryParameterFunc>) {
+        let handler = WebGLQueryParameterHandler {
+            func: Rc::new(f)
+        };
+        self.features.borrow_mut().query_parameter_handlers.insert(name, handler);
+    }
+
+    pub fn get_query_parameter_handler(&self, name: GLenum) -> Option<Rc<Box<WebGLQueryParameterFunc>>> {
+        self.features.borrow().query_parameter_handlers.get(&name).map(|handler| handler.func.clone())
     }
 
     fn register_all_extensions(&self) {
@@ -127,9 +172,21 @@ impl WebGLExtensionManager {
         self.register::<ext::oestexturefloatlinear::OESTextureFloatLinear>();
         self.register::<ext::oestexturehalffloat::OESTextureHalfFloat>();
         self.register::<ext::oestexturehalffloatlinear::OESTextureHalfFloatLinear>();
+        self.register::<ext::oesvertexarrayobject::OESVertexArrayObject>();
     }
 }
 
-// Helper struct
+// Helper structs
 #[derive(JSTraceable, HeapSizeOf, PartialEq, Eq, Hash)]
 struct TexFormatType(u32, u32);
+
+type WebGLQueryParameterFunc = Fn(*mut JSContext, &WebGLRenderingContext)
+                               -> Result<JSVal, WebGLError>;
+
+#[derive(HeapSizeOf)]
+struct WebGLQueryParameterHandler {
+    #[ignore_heap_size_of = "Closures are hard"]
+    func: Rc<Box<WebGLQueryParameterFunc>>
+}
+
+unsafe_no_jsmanaged_fields!(WebGLQueryParameterHandler);

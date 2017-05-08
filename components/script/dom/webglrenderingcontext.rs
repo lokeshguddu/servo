@@ -249,6 +249,10 @@ impl WebGLRenderingContext {
         self.ipc_renderer.clone()
     }
 
+    pub fn get_extension_manger<'a>(&'a self) -> &'a WebGLExtensionManager {
+        &self.extension_manager
+    }
+
     pub fn webgl_error(&self, err: WebGLError) {
         // TODO(emilio): Add useful debug messages to this
         warn!("WebGL error: {:?}, previous error was {:?}", err, self.last_error.get());
@@ -304,9 +308,9 @@ impl WebGLRenderingContext {
             // Validate non filterable TEXTURE_2D data_types
             if target != constants::TEXTURE_2D {
                 return;
-            } 
+            }
 
-            let target = TexImageTarget::Texture2D;    
+            let target = TexImageTarget::Texture2D;
             let info = texture.image_info_for_target(&target, 0);
             if info.is_initialized() {
                 self.validate_filterable_texture(&texture,
@@ -1154,6 +1158,19 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                 }
             }
             _ => {}
+        }
+
+        // Handle GetParameter getters injected via WebGL extensions
+        if let Some(query_handler) = self.extension_manager.get_query_parameter_handler(parameter) {
+            match query_handler(cx, &self) {
+                Ok(value) => {
+                    return value;
+                },
+                Err(error) => {
+                    self.webgl_error(error);
+                    return NullValue();
+                }
+            }
         }
 
         let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();

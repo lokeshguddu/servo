@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use core::nonzero::NonZero;
-use dom::bindings::js::MutNullableJS;
+use dom::bindings::js::{MutNullableJS, Root};
 use dom::bindings::reflector::DomObject;
 use dom::bindings::trace::JSTraceable;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use js::jsapi::JSObject;
 use heapsize::HeapSizeOf;
+use std::any::Any;
 use super::{WebGLExtension, WebGLExtensionManager};
 
 pub trait WebGLExtensionWrapper: JSTraceable + HeapSizeOf {
@@ -19,6 +20,7 @@ pub trait WebGLExtensionWrapper: JSTraceable + HeapSizeOf {
     fn is_supported(&self, &WebGLExtensionManager) -> bool;
     fn enable(&self, manager: &WebGLExtensionManager);
     fn name(&self) -> &'static str;
+    fn as_any<'a>(&'a self) -> &'a Any;
 }
 
 #[must_root]
@@ -35,7 +37,8 @@ impl<T: WebGLExtension> TypedWebGLExtensionWrapper<T> {
     }
 }
 
-impl<T: WebGLExtension + JSTraceable + HeapSizeOf> WebGLExtensionWrapper for TypedWebGLExtensionWrapper<T> {
+impl<T> WebGLExtensionWrapper for TypedWebGLExtensionWrapper<T>
+                              where T: WebGLExtension + JSTraceable + HeapSizeOf + 'static {
     #[allow(unsafe_code)]
     fn instance_or_init(&self,
                         ctx: &WebGLRenderingContext,
@@ -64,5 +67,15 @@ impl<T: WebGLExtension + JSTraceable + HeapSizeOf> WebGLExtensionWrapper for Typ
 
     fn name(&self) -> &'static str {
         T::name()
+    }
+
+    fn as_any<'a>(&'a self) -> &'a Any {
+        self
+    }
+}
+
+impl<T> TypedWebGLExtensionWrapper<T> where T: WebGLExtension + JSTraceable + HeapSizeOf + 'static {
+    pub fn dom_object(&self) -> Option<Root<T::Extension>> {
+        self.extension.get()
     }
 }

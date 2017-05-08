@@ -16,7 +16,7 @@ pub struct OESTextureHalfFloatLinear {
 }
 
 impl OESTextureHalfFloatLinear {
-    pub fn new_inherited() -> OESTextureHalfFloatLinear {
+    fn new_inherited() -> OESTextureHalfFloatLinear {
         Self {
             reflector_: Reflector::new(),
         }

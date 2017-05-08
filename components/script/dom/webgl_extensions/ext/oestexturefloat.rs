@@ -15,7 +15,7 @@ pub struct OESTextureFloat {
 }
 
 impl OESTextureFloat {
-    pub fn new_inherited() -> OESTextureFloat {
+    fn new_inherited() -> OESTextureFloat {
         Self {
             reflector_: Reflector::new(),
         }
