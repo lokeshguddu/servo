@@ -7,7 +7,7 @@ use dom::bindings::js::Root;
 use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom_struct::dom_struct;
-use super::{constans as webgl, ext_constants as gl, WebGLExtension, WebGLExtensionManager};
+use super::{constants as webgl, ext_constants as gl, WebGLExtension, WebGLExtensionManager};
 
 #[dom_struct]
 pub struct OESTextureFloat {

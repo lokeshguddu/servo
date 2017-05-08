@@ -428,7 +428,7 @@ impl ImageInfo {
         self.depth.is_power_of_two()
     }
 
-    fn is_initialized(&self) -> bool {
+    pub fn is_initialized(&self) -> bool {
         self.is_initialized
     }
 
