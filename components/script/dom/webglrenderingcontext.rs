@@ -6,7 +6,6 @@ use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::{CanvasCommonMsg, CanvasMsg, byte_swap, multiply_u8_pixel};
 use core::cell::Ref;
 use core::nonzero::NonZero;
-use core::slice::Iter;
 use core::iter::FromIterator;
 use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::{self, WebGLContextAttributes};
@@ -236,8 +235,8 @@ impl WebGLRenderingContext {
         self.bound_attrib_buffers.borrow()
     }
 
-    pub fn set_bound_attrib_buffers(&self, iter: Iter<(u32, &WebGLBuffer)>) {
-        *self.bound_attrib_buffers.borrow_mut() = HashMap::from_iter(iter.map(|&(k,v)| (k, JS::from_ref(v))));
+    pub fn set_bound_attrib_buffers<'a, T>(&self, iter: T) where T: Iterator<Item=(u32, &'a WebGLBuffer)> {
+        *self.bound_attrib_buffers.borrow_mut() = HashMap::from_iter(iter.map(|(k,v)| (k, JS::from_ref(v))));
     }
 
     pub fn recreate(&self, size: Size2D<i32>) {
@@ -2232,7 +2231,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
         if pname == constants::VERTEX_ATTRIB_ARRAY_BUFFER_BINDING {
             rooted!(in(cx) let mut jsval = NullValue());
-            if let Some(buffer) =  self.bound_attrib_buffers.borrow().get(index) {
+            if let Some(buffer) =  self.bound_attrib_buffers.borrow().get(&index) {
                 buffer.to_jsval(cx, jsval.handle_mut());
             }
             return jsval.get();

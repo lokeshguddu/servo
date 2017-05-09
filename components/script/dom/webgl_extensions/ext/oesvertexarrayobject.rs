@@ -13,6 +13,7 @@ use dom_struct::dom_struct;
 use js::conversions::ToJSValConvertible;
 use js::jsapi::JSContext;
 use js::jsval::{JSVal, NullValue};
+use std::iter;
 use super::{WebGLExtension, WebGLExtensionManager};
 use webrender_traits::{self, WebGLCommand, WebGLError};
 
@@ -79,10 +80,8 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
     fn BindVertexArrayOES(&self, vao: Option<&WebGLVertexArrayObjectOES>) -> () {
         if let Some(bound_vao) = self.bound_vao.get() {
             // Store current attrib array bindings
-            let buffer_array = self.ctx.bound_buffer_array();
-            let buffer_array_element = self.ctx.bound_buffer_element_array();
-            bound_vao.set_bound_buffer_array(buffer_array.as_ref().map(|b| &**b));
-            bound_vao.set_bound_buffer_element_array(buffer_array_element.as_ref().map(|b| &**b));
+            let buffers = self.ctx.borrow_bound_attrib_buffers();
+            bound_vao.set_bound_attrib_buffers(buffers.iter().map(|(k,v)| (*k, &**v)));
         }
 
         if let Some(vao) = vao {
@@ -96,15 +95,12 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
             self.bound_vao.set(Some(&vao));
 
             // Restore WebGLRenderingContext current bindings
-            let buffer_array = vao.bound_buffer_array();
-            let buffer_array_element = vao.bound_buffer_element_array();
-            self.ctx.set_bound_buffer_array(buffer_array.as_ref().map(|b| &**b));
-            self.ctx.set_bound_buffer_element_array(buffer_array_element.as_ref().map(|b| &**b));
+            let buffers = vao.borrow_bound_attrib_buffers();
+            self.ctx.set_bound_attrib_buffers(buffers.iter().map(|(k,v)| (*k, &**v)));
         } else {
             self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
             self.bound_vao.set(None);
-            self.ctx.set_bound_buffer_array(None);
-            self.ctx.set_bound_buffer_element_array(None);
+            self.ctx.set_bound_attrib_buffers(iter::empty());
         }
     }
 }
