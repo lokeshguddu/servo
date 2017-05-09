@@ -44,7 +44,7 @@ impl Default for WebGLExtensionFeatures {
         WebGLExtensionFeatures {
             gl_extensions: HashSet::new(),
             disabled_tex_types: DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect(),
-            not_filterable_tex_types: DEFAULT_DISABLED_TEX_TYPES.iter().cloned().collect(),
+            not_filterable_tex_types: DEFAULT_NOT_FILTERABLE_TEX_TYPES.iter().cloned().collect(),
             effective_tex_internal_formats: HashMap::new(),
             query_parameter_handlers: HashMap::new()
         }

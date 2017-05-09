@@ -4,7 +4,11 @@
 
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::{CanvasCommonMsg, CanvasMsg, byte_swap, multiply_u8_pixel};
+use core::cell::Ref;
 use core::nonzero::NonZero;
+use core::slice::Iter;
+use core::iter::FromIterator;
+use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::{self, WebGLContextAttributes};
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextMethods;
@@ -49,6 +53,7 @@ use net_traits::image_cache::ImageResponse;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use script_traits::ScriptMsg as ConstellationMsg;
 use std::cell::Cell;
+use std::collections::HashMap;
 use webrender_traits;
 use webrender_traits::{WebGLCommand, WebGLError, WebGLFramebufferBindingRequest, WebGLParameter};
 use webrender_traits::WebGLError::*;
@@ -145,6 +150,7 @@ pub struct WebGLRenderingContext {
     bound_texture_cube_map: MutNullableJS<WebGLTexture>,
     bound_buffer_array: MutNullableJS<WebGLBuffer>,
     bound_buffer_element_array: MutNullableJS<WebGLBuffer>,
+    bound_attrib_buffers: DOMRefCell<HashMap<u32, JS<WebGLBuffer>>>,
     current_program: MutNullableJS<WebGLProgram>,
     #[ignore_heap_size_of = "Because it's small"]
     current_vertex_attrib_0: Cell<(f32, f32, f32, f32)>,
@@ -181,6 +187,7 @@ impl WebGLRenderingContext {
                 bound_texture_cube_map: MutNullableJS::new(None),
                 bound_buffer_array: MutNullableJS::new(None),
                 bound_buffer_element_array: MutNullableJS::new(None),
+                bound_attrib_buffers: DOMRefCell::new(HashMap::new()),
                 bound_renderbuffer: MutNullableJS::new(None),
                 current_program: MutNullableJS::new(None),
                 current_vertex_attrib_0: Cell::new((0f32, 0f32, 0f32, 1f32)),
@@ -225,6 +232,14 @@ impl WebGLRenderingContext {
         }
     }
 
+    pub fn borrow_bound_attrib_buffers(&self) -> Ref<HashMap<u32, JS<WebGLBuffer>>> {
+        self.bound_attrib_buffers.borrow()
+    }
+
+    pub fn set_bound_attrib_buffers(&self, iter: Iter<(u32, &WebGLBuffer)>) {
+        *self.bound_attrib_buffers.borrow_mut() = HashMap::from_iter(iter.map(|&(k,v)| (k, JS::from_ref(v))));
+    }
+
     pub fn recreate(&self, size: Size2D<i32>) {
         self.ipc_renderer.send(CanvasMsg::Common(CanvasCommonMsg::Recreate(size))).unwrap();
 
@@ -247,6 +262,10 @@ impl WebGLRenderingContext {
 
     pub fn ipc_renderer(&self) -> IpcSender<CanvasMsg> {
         self.ipc_renderer.clone()
+    }
+
+    pub fn send_renderer_message(&self, msg: CanvasMsg) {
+        self.ipc_renderer.send(msg).unwrap();
     }
 
     pub fn get_extension_manger<'a>(&'a self) -> &'a WebGLExtensionManager {
@@ -2211,6 +2230,14 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             return result.get()
         }
 
+        if pname == constants::VERTEX_ATTRIB_ARRAY_BUFFER_BINDING {
+            rooted!(in(cx) let mut jsval = NullValue());
+            if let Some(buffer) =  self.bound_attrib_buffers.borrow().get(index) {
+                buffer.to_jsval(cx, jsval.handle_mut());
+            }
+            return jsval.get();
+        }
+
         let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
         self.ipc_renderer.send(CanvasMsg::WebGL(WebGLCommand::GetVertexAttrib(index, pname, sender))).unwrap();
 
@@ -3006,9 +3033,13 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
         if size < 1 || size > 4 {
             return self.webgl_error(InvalidValue);
         }
-        if self.bound_buffer_array.get().is_none() {
-            return self.webgl_error(InvalidOperation);
-        }
+
+        let buffer_array = match self.bound_buffer_array.get() {
+            Some(buffer) => buffer,
+            None => {
+                return self.webgl_error(InvalidOperation);
+            }
+        };
 
         // stride and offset must be multiple of data_type
         match data_type {
@@ -3026,6 +3057,8 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             _ => return self.webgl_error(InvalidEnum),
 
         }
+
+        self.bound_attrib_buffers.borrow_mut().insert(attrib_id, JS::from_ref(&*buffer_array));
 
         let msg = CanvasMsg::WebGL(
                     WebGLCommand::VertexAttribPointer(attrib_id, size, data_type, normalized, stride, offset as u32));

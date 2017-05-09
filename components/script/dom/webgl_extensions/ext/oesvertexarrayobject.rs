@@ -5,7 +5,7 @@
 use canvas_traits::CanvasMsg;
 use dom::bindings::codegen::Bindings::OESVertexArrayObjectBinding::{self, OESVertexArrayObjectMethods};
 use dom::bindings::codegen::Bindings::OESVertexArrayObjectBinding::OESVertexArrayObjectConstants;
-use dom::bindings::js::{MutNullableJS, Root};
+use dom::bindings::js::{JS, MutNullableJS, Root};
 use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom::webglvertexarrayobjectoes::WebGLVertexArrayObjectOES;
@@ -13,24 +13,22 @@ use dom_struct::dom_struct;
 use js::conversions::ToJSValConvertible;
 use js::jsapi::JSContext;
 use js::jsval::{JSVal, NullValue};
-use ipc_channel::ipc::IpcSender;
-use super::{constants as webgl, WebGLExtension, WebGLExtensionManager};
+use super::{WebGLExtension, WebGLExtensionManager};
 use webrender_traits::{self, WebGLCommand, WebGLError};
 
 #[dom_struct]
 pub struct OESVertexArrayObject {
     reflector_: Reflector,
+    ctx: JS<WebGLRenderingContext>,
     bound_vao: MutNullableJS<WebGLVertexArrayObjectOES>,
-    #[ignore_heap_size_of = "Defined in ipc-channel"]
-    renderer: IpcSender<CanvasMsg>
 }
 
 impl OESVertexArrayObject {
-    fn new_inherited(renderer: IpcSender<CanvasMsg>) -> OESVertexArrayObject {
+    fn new_inherited(ctx: &WebGLRenderingContext) -> OESVertexArrayObject {
         Self {
             reflector_: Reflector::new(),
-            bound_vao: MutNullableJS::new(None),
-            renderer: renderer
+            ctx: JS::from_ref(ctx),
+            bound_vao: MutNullableJS::new(None)
         }
     }
 
@@ -50,7 +48,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
     // https://www.khronos.org/registry/webgl/extensions/OES_vertex_array_object/
     fn CreateVertexArrayOES(&self) -> Option<Root<WebGLVertexArrayObjectOES>> {
         let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::CreateVertexArray(sender))).unwrap();
+        self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::CreateVertexArray(sender)));
 
         let result = receiver.recv().unwrap();
         result.map(|vao_id| WebGLVertexArrayObjectOES::new(&self.global(), vao_id))
@@ -63,29 +61,50 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
             if let Some(bound_vao) = self.bound_vao.get() {
                 if bound_vao.id() == vao.id() {
                     self.bound_vao.set(None);
-                    self.renderer.send(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None))).unwrap();
+                    self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
                 }
             }
-            self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DeleteVertexArray(vao.id()))).unwrap();
-            vao.mark_deleted();
+            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::DeleteVertexArray(vao.id())));
+            vao.set_deleted();
         }
     }
 
     // https://www.khronos.org/registry/webgl/extensions/OES_vertex_array_object/
     fn IsVertexArrayOES(&self, vao: Option<&WebGLVertexArrayObjectOES>) -> bool {
-        vao.map_or(false, |vao| !vao.is_deleted())
+        // Conformance tests expect false if vao never bound
+        vao.map_or(false, |vao| !vao.is_deleted() && vao.ever_bound())
     }
 
     // https://www.khronos.org/registry/webgl/extensions/OES_vertex_array_object/
     fn BindVertexArrayOES(&self, vao: Option<&WebGLVertexArrayObjectOES>) -> () {
+        if let Some(bound_vao) = self.bound_vao.get() {
+            // Store current attrib array bindings
+            let buffer_array = self.ctx.bound_buffer_array();
+            let buffer_array_element = self.ctx.bound_buffer_element_array();
+            bound_vao.set_bound_buffer_array(buffer_array.as_ref().map(|b| &**b));
+            bound_vao.set_bound_buffer_element_array(buffer_array_element.as_ref().map(|b| &**b));
+        }
+
         if let Some(vao) = vao {
-            if !vao.is_deleted() {
-                self.renderer.send(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(Some(vao.id())))).unwrap();
-                self.bound_vao.set(Some(&vao));
+            if vao.is_deleted() {
+                self.ctx.webgl_error(WebGLError::InvalidOperation);
+                return;
             }
+
+            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(Some(vao.id()))));
+            vao.set_ever_bound();
+            self.bound_vao.set(Some(&vao));
+
+            // Restore WebGLRenderingContext current bindings
+            let buffer_array = vao.bound_buffer_array();
+            let buffer_array_element = vao.bound_buffer_element_array();
+            self.ctx.set_bound_buffer_array(buffer_array.as_ref().map(|b| &**b));
+            self.ctx.set_bound_buffer_element_array(buffer_array_element.as_ref().map(|b| &**b));
         } else {
-            self.renderer.send(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None))).unwrap();
+            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
             self.bound_vao.set(None);
+            self.ctx.set_bound_buffer_array(None);
+            self.ctx.set_bound_buffer_element_array(None);
         }
     }
 }
@@ -93,7 +112,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
 impl WebGLExtension for OESVertexArrayObject {
     type Extension = OESVertexArrayObject;
     fn new(ctx: &WebGLRenderingContext) -> Root<OESVertexArrayObject> {
-        reflect_dom_object(box OESVertexArrayObject::new_inherited(ctx.ipc_renderer()),
+        reflect_dom_object(box OESVertexArrayObject::new_inherited(ctx),
                            &*ctx.global(),
                            OESVertexArrayObjectBinding::Wrap)
     }
