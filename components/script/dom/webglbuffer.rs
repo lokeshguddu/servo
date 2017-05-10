@@ -23,6 +23,8 @@ pub struct WebGLBuffer {
     target: Cell<Option<u32>>,
     capacity: Cell<usize>,
     is_deleted: Cell<bool>,
+    // The number of Vertex Attrib Objects that are referencing this buffer
+    vao_references: Cell<u32>,
     #[ignore_heap_size_of = "Defined in ipc-channel"]
     renderer: IpcSender<CanvasMsg>,
 }
@@ -37,6 +39,7 @@ impl WebGLBuffer {
             target: Cell::new(None),
             capacity: Cell::new(0),
             is_deleted: Cell::new(false),
+            vao_references: Cell::new(0),
             renderer: renderer,
         }
     }
@@ -99,6 +102,11 @@ impl WebGLBuffer {
     }
 
     pub fn delete(&self) {
+        if self.vao_references.get() > 0 {
+            // WebGL spec: The buffers attached to VAOs should still not be deleted
+            // is_deleted is set to destroy the buffer when the VAO is deleted.
+            self.is_deleted.set(true);
+        }
         if !self.is_deleted.get() {
             self.is_deleted.set(true);
             let _ = self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DeleteBuffer(self.id)));
@@ -106,11 +114,26 @@ impl WebGLBuffer {
     }
 
     pub fn is_deleted(&self) -> bool {
-        self.is_deleted.get()
+        self.is_deleted.get() && self.vao_references.get() == 0
     }
 
     pub fn target(&self) -> Option<u32> {
         self.target.get()
+    }
+
+    pub fn add_vao_reference(&self) {
+        self.vao_references.set(self.vao_references.get() + 1);
+    }
+
+    pub fn remove_vao_reference(&self) {
+        let n = self.vao_references.get();
+        if n > 0 {
+            self.vao_references.set(n - 1);
+            if self.is_deleted.get() {
+                // WebGL spec: The deleted buffers should no longer be valid when the VAOs are deleted
+                let _ = self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DeleteBuffer(self.id)));
+            }
+        }
     }
 }
 

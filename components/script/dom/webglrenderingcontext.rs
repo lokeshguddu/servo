@@ -239,6 +239,14 @@ impl WebGLRenderingContext {
         *self.bound_attrib_buffers.borrow_mut() = HashMap::from_iter(iter.map(|(k,v)| (k, JS::from_ref(v))));
     }
 
+    pub fn bound_buffer_element_array(&self) -> Option<Root<WebGLBuffer>> {
+        self.bound_buffer_element_array.get()
+    }
+
+    pub fn set_bound_buffer_element_array(&self, buffer: Option<&WebGLBuffer>) {
+        self.bound_buffer_element_array.set(buffer);
+    }
+
     pub fn recreate(&self, size: Size2D<i32>) {
         self.ipc_renderer.send(CanvasMsg::Common(CanvasCommonMsg::Recreate(size))).unwrap();
 

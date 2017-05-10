@@ -79,9 +79,18 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
     // https://www.khronos.org/registry/webgl/extensions/OES_vertex_array_object/
     fn BindVertexArrayOES(&self, vao: Option<&WebGLVertexArrayObjectOES>) -> () {
         if let Some(bound_vao) = self.bound_vao.get() {
-            // Store current attrib array bindings
+            // Store buffers attached to attrib pointers
             let buffers = self.ctx.borrow_bound_attrib_buffers();
-            bound_vao.set_bound_attrib_buffers(buffers.iter().map(|(k,v)| (*k, &**v)));
+            bound_vao.set_bound_attrib_buffers(buffers.iter().map(|(key, buffer)| {
+                (*buffer).add_vao_reference();
+                (*key, &**buffer)
+            }));
+            // Store element array buffer
+            let element_array = self.ctx.bound_buffer_element_array();
+            bound_vao.set_bound_buffer_element_array(element_array.as_ref().map(|buffer| {
+                buffer.add_vao_reference();
+                &**buffer
+            }));
         }
 
         if let Some(vao) = vao {
@@ -96,11 +105,20 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
 
             // Restore WebGLRenderingContext current bindings
             let buffers = vao.borrow_bound_attrib_buffers();
-            self.ctx.set_bound_attrib_buffers(buffers.iter().map(|(k,v)| (*k, &**v)));
+            self.ctx.set_bound_attrib_buffers(buffers.iter().map(|(key, buffer)| {
+                buffer.remove_vao_reference();
+                (*key, &**buffer)
+            }));
+            let element_array = vao.bound_buffer_element_array();
+            self.ctx.set_bound_buffer_element_array(element_array.as_ref().map(|buffer| {
+                buffer.remove_vao_reference();
+                &**buffer
+            }));
         } else {
             self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
             self.bound_vao.set(None);
             self.ctx.set_bound_attrib_buffers(iter::empty());
+            self.ctx.set_bound_buffer_element_array(None);
         }
     }
 }
