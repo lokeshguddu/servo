@@ -68,6 +68,10 @@ impl WebGLVertexArrayObjectOES {
         self.bound_attrib_buffers.borrow()
     }
 
+    pub fn bound_attrib_buffers(&self) -> Vec<Root<WebGLBuffer>> {
+        self.bound_attrib_buffers.borrow().iter().map(|(_, b)| Root::from_ref(&**b)).collect()
+    }
+
     pub fn set_bound_attrib_buffers<'a, T>(&self, iter: T) where T: Iterator<Item=(u32, &'a WebGLBuffer)> {
         *self.bound_attrib_buffers.borrow_mut() = HashMap::from_iter(iter.map(|(k,v)| (k, JS::from_ref(v))));
     }

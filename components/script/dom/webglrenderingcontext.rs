@@ -1875,6 +1875,13 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.5
     fn DeleteBuffer(&self, buffer: Option<&WebGLBuffer>) {
         if let Some(buffer) = buffer {
+            if buffer.is_attached_to_vao() {
+                // WebGL spec: The buffers attached to VAOs should still not be deleted.
+                // They are deleted after the VAO is deleted.
+                buffer.set_pending_delete();
+                return;
+            }
+
             handle_object_deletion!(self, self.bound_buffer_array, buffer,
                                     Some(WebGLCommand::BindBuffer(constants::ARRAY_BUFFER, None)));
             handle_object_deletion!(self, self.bound_buffer_element_array, buffer,
@@ -2260,6 +2267,14 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             }
             WebGLParameter::Invalid => NullValue(),
         }
+    }
+
+    // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.10
+    fn GetVertexAttribOffset(&self, index: u32, pname: u32) -> i64 {
+        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        self.ipc_renderer.send(CanvasMsg::WebGL(WebGLCommand::GetVertexAttribOffset(index, pname, sender))).unwrap();
+
+        handle_potential_webgl_error!(self, receiver.recv().unwrap(), 0) as i64
     }
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.3

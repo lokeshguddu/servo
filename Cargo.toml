@@ -17,3 +17,4 @@ opt-level = 3
 [replace]
 "https://github.com/servo/webrender#0.36.0" = { path = '/home/mortimer/Projects/webrender/webrender' }
 "https://github.com/servo/webrender#webrender_traits:0.36.0" = { path = '/home/mortimer/Projects/webrender/webrender_traits' }
+"gleam:0.4.4" = { path = '/home/mortimer/Projects/gleam' }

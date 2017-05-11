@@ -1053,11 +1053,16 @@ dependencies = [
 [[package]]
 name = "gleam"
 version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "gl_generator 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "pkg-config 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "gleam"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+replace = "gleam 0.4.4"
 
 [[package]]
 name = "glob"
